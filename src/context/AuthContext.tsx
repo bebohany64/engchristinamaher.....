@@ -51,7 +51,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [parents, setParents] = useState<Parent[]>([]);
-  const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   // Load data from Supabase on initial mount
@@ -59,7 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const loadData = async () => {
       setIsLoading(true);
       try {
-        // Load user from localStorage if logged in
+        // Load user from localStorage only for session persistence
         const storedUser = localStorage.getItem("currentUser");
         const userLoggedIn = localStorage.getItem("userLoggedIn");
         
@@ -73,18 +72,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
         
-        // Fetch students from Supabase
+        // Always fetch students from Supabase as primary source
         const { data: studentsData, error: studentsError } = await supabase
           .from('students')
           .select('*');
           
         if (studentsError) {
           console.error("Error fetching students:", studentsError);
-          // Load from localStorage as fallback
-          const storedStudents = localStorage.getItem("students");
-          if (storedStudents) {
-            setStudents(JSON.parse(storedStudents));
-          }
+          toast({
+            title: "خطأ في تحميل بيانات الطلاب",
+            description: "تعذر تحميل بيانات الطلاب من قاعدة البيانات",
+            variant: "destructive"
+          });
         } else {
           // Map Supabase data to Student type
           const formattedStudents: Student[] = studentsData.map(student => ({
@@ -101,18 +100,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setStudents(formattedStudents);
         }
         
-        // Fetch parents from Supabase
+        // Always fetch parents from Supabase as primary source
         const { data: parentsData, error: parentsError } = await supabase
           .from('parents')
           .select('*');
           
         if (parentsError) {
           console.error("Error fetching parents:", parentsError);
-          // Load from localStorage as fallback
-          const storedParents = localStorage.getItem("parents");
-          if (storedParents) {
-            setParents(JSON.parse(storedParents));
-          }
+          toast({
+            title: "خطأ في تحميل بيانات أولياء الأمور",
+            description: "تعذر تحميل بيانات أولياء الأمور من قاعدة البيانات",
+            variant: "destructive"
+          });
         } else {
           // Map Supabase data to Parent type
           const formattedParents: Parent[] = parentsData.map(parent => ({
@@ -125,48 +124,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setParents(formattedParents);
         }
       } catch (error) {
-        console.error("Error loading data:", error);
-        // Try to load from localStorage as fallback
-        const storedStudents = localStorage.getItem("students");
-        const storedParents = localStorage.getItem("parents");
-        
-        if (storedStudents) {
-          try {
-            setStudents(JSON.parse(storedStudents));
-          } catch (error) {
-            console.error("Failed to parse students from localStorage:", error);
-          }
-        }
-
-        if (storedParents) {
-          try {
-            setParents(JSON.parse(storedParents));
-          } catch (error) {
-            console.error("Failed to parse parents from localStorage:", error);
-          }
-        }
+        console.error("Error loading data from Supabase:", error);
+        toast({
+          title: "خطأ في الاتصال",
+          description: "تعذر الاتصال بقاعدة البيانات",
+          variant: "destructive"
+        });
       } finally {
         setIsLoading(false);
-        setIsInitialized(true);
       }
     };
 
     loadData();
   }, []);
 
-  // Save user to localStorage when it changes
+  // Save user to localStorage when it changes (only for session persistence)
   useEffect(() => {
-    if (!isInitialized) return;
-    
     if (currentUser) {
       localStorage.setItem("currentUser", JSON.stringify(currentUser));
       localStorage.setItem("userLoggedIn", "true");
     }
-  }, [currentUser, isInitialized]);
+  }, [currentUser]);
 
   const login = async (phoneNumber: string, password: string): Promise<boolean> => {
     console.log("Attempting login with:", { phoneNumber, password });
-    console.log("Available students:", students);
     
     // Check if admin
     if (phoneNumber === adminUser.phone && password === adminUser.password) {
@@ -181,7 +162,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check if student
     const student = students.find(s => s.phone === phoneNumber && s.password === password);
     if (student) {
-      console.log("Student found:", student);
       setCurrentUser({
         id: student.id,
         name: student.name,
@@ -202,7 +182,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check if parent
     const parent = parents.find(p => p.phone === phoneNumber && p.password === password);
     if (parent) {
-      console.log("Parent found:", parent);
       const student = students.find(s => s.code === parent.studentCode);
       setCurrentUser({
         id: parent.id,
@@ -219,7 +198,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return true;
     }
 
-    console.log("Login failed. No matching user found.");
     toast({
       variant: "destructive",
       title: "❌ فشل تسجيل الدخول",
@@ -251,21 +229,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     grade: "first" | "second" | "third"
   ): Promise<Student> => {
     const code = generateRandomCode();
-    // استخدام الدالة الجديدة لتوليد كلمة مرور فريدة من 5 أرقام مختلفة
     const password = generateUniquePassword(students, parents);
     
-    const newStudent: Student = {
-      id: `student-${Date.now()}`, // This will be replaced by the UUID from Supabase
-      name,
-      phone,
-      password,
-      code,
-      parentPhone,
-      group,
-      grade,
-      role: "student" 
-    };
-
     try {
       // Insert into Supabase
       const { data, error } = await supabase
@@ -284,7 +249,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error("Error creating student in Supabase:", error);
-        throw error;
+        throw new Error(`فشل في إنشاء حساب الطالب: ${error.message}`);
       }
 
       // Update student with Supabase ID
@@ -309,19 +274,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       
       return serverStudent;
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to create student:", error);
-      
-      // Fallback to localStorage approach (this shouldn't be necessary in production)
-      setStudents(prev => [...prev, newStudent]);
-      localStorage.setItem("students", JSON.stringify([...students, newStudent]));
-      
       toast({
-        title: "⚠️ تم إنشاء حساب الطالب محلياً",
-        description: `كود الطالب هو: ${code} | كلمة المرور: ${password}`,
+        title: "❌ خطأ في إنشاء حساب الطالب",
+        description: error.message || "حدث خطأ غير متوقع",
+        variant: "destructive"
       });
-      
-      return newStudent;
+      throw error;
     }
   };
 
@@ -350,7 +310,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error("Error updating student in Supabase:", error);
-        throw error;
+        throw new Error(`فشل في تحديث بيانات الطالب: ${error.message}`);
       }
 
       // Update local state
@@ -370,27 +330,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         newStudents[studentIndex] = updatedStudent;
         setStudents(newStudents);
       }
-    } catch (error) {
-      console.error("Failed to update student:", error);
-      
-      // Fallback to localStorage approach
-      const studentIndex = students.findIndex(s => s.id === id);
-      if (studentIndex !== -1) {
-        const updatedStudent = {
-          ...students[studentIndex],
-          name,
-          phone,
-          password,
-          parentPhone,
-          group,
-          grade
-        };
 
-        const newStudents = [...students];
-        newStudents[studentIndex] = updatedStudent;
-        setStudents(newStudents);
-        localStorage.setItem("students", JSON.stringify(newStudents));
-      }
+      toast({
+        title: "✅ تم تحديث بيانات الطالب بنجاح",
+        description: `تم تحديث بيانات ${name}`,
+      });
+    } catch (error: any) {
+      console.error("Failed to update student:", error);
+      toast({
+        title: "❌ خطأ في تحديث بيانات الطالب",
+        description: error.message || "حدث خطأ غير متوقع",
+        variant: "destructive"
+      });
+      throw error;
     }
   };
 
@@ -404,18 +356,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error("Error deleting student from Supabase:", error);
-        throw error;
+        throw new Error(`فشل في حذف الطالب: ${error.message}`);
       }
 
       // Update local state
       setStudents(prev => prev.filter(student => student.id !== id));
-    } catch (error) {
+
+      toast({
+        title: "✅ تم حذف الطالب بنجاح",
+        description: "تم حذف الطالب من النظام",
+      });
+    } catch (error: any) {
       console.error("Failed to delete student:", error);
-      
-      // Fallback to localStorage approach
-      const newStudents = students.filter(student => student.id !== id);
-      setStudents(newStudents);
-      localStorage.setItem("students", JSON.stringify(newStudents));
+      toast({
+        title: "❌ خطأ في حذف الطالب",
+        description: error.message || "حدث خطأ غير متوقع",
+        variant: "destructive"
+      });
+      throw error;
     }
   };
 
@@ -431,17 +389,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error("Student code invalid");
     }
 
-    // استخدام الدالة الجديدة لتوليد كلمة مرور فريدة من 5 أرقام مختلفة
     const password = generateUniquePassword(students, parents);
     
-    const newParent: Parent = {
-      id: `parent-${Date.now()}`, // This will be replaced by the UUID from Supabase
-      phone,
-      studentCode,
-      studentName: student.name,
-      password,
-    };
-
     try {
       // Insert into Supabase
       const { data, error } = await supabase
@@ -457,7 +406,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error("Error creating parent in Supabase:", error);
-        throw error;
+        throw new Error(`فشل في إنشاء حساب ولي الأمر: ${error.message}`);
       }
 
       // Update parent with Supabase ID
@@ -478,19 +427,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       
       return serverParent;
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to create parent:", error);
-      
-      // Fallback to localStorage approach
-      setParents(prev => [...prev, newParent]);
-      localStorage.setItem("parents", JSON.stringify([...parents, newParent]));
-      
       toast({
-        title: "⚠️ تم إنشاء حساب ولي الأمر محلياً",
-        description: `مرتبط بالطالب: ${student.name} | كلمة المرور: ${password}`,
+        title: "❌ خطأ في إنشاء حساب ولي الأمر",
+        description: error.message || "حدث خطأ غير متوقع",
+        variant: "destructive"
       });
-      
-      return newParent;
+      throw error;
     }
   };
 
@@ -520,7 +464,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error("Error updating parent in Supabase:", error);
-        throw error;
+        throw new Error(`فشل في تحديث بيانات ولي الأمر: ${error.message}`);
       }
 
       // Update local state
@@ -549,36 +493,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
         }
       }
-    } catch (error) {
-      console.error("Failed to update parent:", error);
-      
-      // Fallback to localStorage approach
-      const parentIndex = parents.findIndex(p => p.id === id);
-      if (parentIndex !== -1) {
-        const updatedParent = {
-          ...parents[parentIndex],
-          phone,
-          studentCode,
-          studentName: student.name,
-          password
-        };
 
-        const newParents = [...parents];
-        newParents[parentIndex] = updatedParent;
-        setParents(newParents);
-        localStorage.setItem("parents", JSON.stringify(newParents));
-        
-        // إذا كان هذا ولي الأمر هو المستخدم الحالي، تحديث بيانات المستخدم أيضًا
-        if (currentUser && currentUser.id === id && currentUser.role === "parent") {
-          setCurrentUser({
-            ...currentUser,
-            name: `ولي أمر ${student.name}`,
-            phone,
-            password,
-            childrenIds: [student.id]
-          });
-        }
-      }
+      toast({
+        title: "✅ تم تحديث بيانات ولي الأمر بنجاح",
+        description: `تم تحديث بيانات ولي أمر ${student.name}`,
+      });
+    } catch (error: any) {
+      console.error("Failed to update parent:", error);
+      toast({
+        title: "❌ خطأ في تحديث بيانات ولي الأمر",
+        description: error.message || "حدث خطأ غير متوقع",
+        variant: "destructive"
+      });
+      throw error;
     }
   };
 
@@ -597,24 +524,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error("Error deleting parent from Supabase:", error);
-        throw error;
+        throw new Error(`فشل في حذف ولي الأمر: ${error.message}`);
       }
 
       // Update local state
       setParents(prev => prev.filter(parent => parent.id !== id));
-    } catch (error) {
+
+      toast({
+        title: "✅ تم حذف ولي الأمر بنجاح",
+        description: "تم حذف ولي الأمر من النظام",
+      });
+    } catch (error: any) {
       console.error("Failed to delete parent:", error);
-      
-      // Fallback to localStorage approach
-      const newParents = parents.filter(parent => parent.id !== id);
-      setParents(newParents);
-      localStorage.setItem("parents", JSON.stringify(newParents));
+      toast({
+        title: "❌ خطأ في حذف ولي الأمر",
+        description: error.message || "حدث خطأ غير متوقع",
+        variant: "destructive"
+      });
+      throw error;
     }
   };
 
   const getStudentByCode = async (code: string): Promise<Student | undefined> => {
     try {
-      // Try to fetch from Supabase first
+      // Always fetch from Supabase as primary source
       const { data, error } = await supabase
         .from('students')
         .select('*')
@@ -623,7 +556,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error("Error fetching student by code from Supabase:", error);
-        // Fall back to local data
+        // Fall back to local data only if Supabase fails
         return students.find(student => student.code === code);
       }
 
@@ -679,7 +612,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-physics-gold border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-physics-gold text-lg">جاري تحميل البيانات...</p>
+          <p className="text-physics-gold text-lg">جاري تحميل البيانات من قاعدة البيانات...</p>
         </div>
       </div>
     );
