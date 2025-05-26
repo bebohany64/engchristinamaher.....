@@ -178,34 +178,18 @@ export function usePayments() {
       console.log(`Starting deletion process for payment ID: ${paymentId}`);
       
       // First delete related paid_months
-      const { error: paidMonthsError } = await turso.execute({
+      await turso.execute({
         sql: "DELETE FROM paid_months WHERE payment_id = ?",
         args: [paymentId]
       });
-        
-      if (paidMonthsError) {
-        console.error("Error deleting related paid months:", paidMonthsError);
-        return {
-          success: false,
-          message: `حدث خطأ أثناء حذف الأشهر المدفوعة المرتبطة: ${paidMonthsError.message || 'خطأ غير معروف'}`
-        };
-      }
       
       console.log("Successfully deleted related paid months, now deleting payment record");
       
       // Then delete the payment itself
-      const { error: paymentError } = await turso.execute({
+      await turso.execute({
         sql: "DELETE FROM payments WHERE id = ?",
         args: [paymentId]
       });
-
-      if (paymentError) {
-        console.error("Error deleting payment from Turso:", paymentError);
-        return {
-          success: false,
-          message: `حدث خطأ أثناء حذف سجل الدفع: ${paymentError.message || 'خطأ غير معروف'}`
-        };
-      }
 
       // After successful deletion from database, update local state immediately
       setPayments(prevPayments => {
