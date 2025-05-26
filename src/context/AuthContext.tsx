@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { User, Student, Parent } from "@/types";
 import { generateRandomCode, generateUniquePassword } from "@/lib/utils";
@@ -326,18 +327,71 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteStudent = async (id: string): Promise<void> => {
     try {
-      // Delete from Turso
+      // Get student info before deletion for proper cleanup
+      const student = students.find(s => s.id === id);
+      if (!student) {
+        throw new Error("Student not found");
+      }
+
+      console.log(`Starting deletion process for student: ${student.name} (ID: ${id})`);
+      
+      // Delete related data in the correct order to avoid foreign key constraints
+      
+      // 1. Delete paid_months for this student's payments
+      console.log("Deleting paid months...");
+      await turso.execute({
+        sql: `DELETE FROM paid_months WHERE payment_id IN (
+          SELECT id FROM payments WHERE student_id = ?
+        )`,
+        args: [id]
+      });
+      
+      // 2. Delete payments
+      console.log("Deleting payments...");
+      await turso.execute({
+        sql: "DELETE FROM payments WHERE student_id = ?",
+        args: [id]
+      });
+      
+      // 3. Delete attendance records
+      console.log("Deleting attendance records...");
+      await turso.execute({
+        sql: "DELETE FROM attendance WHERE student_id = ?",
+        args: [id]
+      });
+      
+      // 4. Delete grades
+      console.log("Deleting grades...");
+      await turso.execute({
+        sql: "DELETE FROM grades WHERE student_id = ?",
+        args: [id]
+      });
+      
+      // 5. Delete parent records linked to this student
+      console.log("Deleting parent records...");
+      await turso.execute({
+        sql: "DELETE FROM parents WHERE student_code = ?",
+        args: [student.code]
+      });
+      
+      // 6. Finally, delete the student
+      console.log("Deleting student record...");
       await turso.execute({
         sql: "DELETE FROM students WHERE id = ?",
         args: [id]
       });
 
-      // Update local state
+      // Update local state - remove student
       setStudents(prev => prev.filter(student => student.id !== id));
+      
+      // Update local state - remove related parents
+      setParents(prev => prev.filter(parent => parent.studentCode !== student.code));
+
+      console.log("Student and all related data deleted successfully");
 
       toast({
         title: "✅ تم حذف الطالب بنجاح",
-        description: "تم حذف الطالب من النظام",
+        description: "تم حذف الطالب وجميع البيانات المرتبطة به من النظام",
       });
     } catch (error: any) {
       console.error("Failed to delete student:", error);
