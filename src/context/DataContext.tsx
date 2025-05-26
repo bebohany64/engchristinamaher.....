@@ -67,6 +67,18 @@ export interface DataContextType {
     status?: "present" | "absent",
     lessonNumber?: number
   ) => Promise<Attendance | null>;
+  addBook: (
+    title: string,
+    url: string,
+    grade: "first" | "second" | "third"
+  ) => Promise<Book | null>;
+  updateBook: (
+    bookId: string,
+    title: string,
+    url: string,
+    grade: "first" | "second" | "third"
+  ) => Promise<boolean>;
+  deleteBook: (bookId: string) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -225,7 +237,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }));
       setGrades(formattedGrades);
     } catch (error) {
-      console.error('Error fetching grades:', error);
+      console.error('Error fetching grades from Turso:', error);
       toast({
         title: "خطأ في تحميل الدرجات",
         description: "تعذر تحميل الدرجات من قاعدة البيانات",
@@ -249,7 +261,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }));
       setAttendance(formattedAttendance);
     } catch (error) {
-      console.error('Error fetching attendance:', error);
+      console.error('Error fetching attendance from Turso:', error);
       toast({
         title: "خطأ في تحميل الحضور",
         description: "تعذر تحميل بيانات الحضور من قاعدة البيانات",
@@ -272,7 +284,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }));
       setVideos(formattedVideos);
     } catch (error) {
-      console.error('Error fetching videos:', error);
+      console.error('Error fetching videos from Turso:', error);
       toast({
         title: "خطأ في تحميل الفيديوهات",
         description: "تعذر تحميل الفيديوهات من قاعدة البيانات",
@@ -294,7 +306,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }));
       setBooks(formattedBooks);
     } catch (error) {
-      console.error('Error fetching books:', error);
+      console.error('Error fetching books from Turso:', error);
       toast({
         title: "خطأ في تحميل الكتب",
         description: "تعذر تحميل الكتب من قاعدة البيانات",
@@ -539,6 +551,111 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Add book function
+  const addBook = async (
+    title: string,
+    url: string,
+    grade: "first" | "second" | "third"
+  ) => {
+    try {
+      const id = generateId();
+      const uploadDate = new Date().toISOString();
+
+      await turso.execute({
+        sql: `INSERT INTO books (id, title, url, grade, upload_date) VALUES (?, ?, ?, ?, ?)`,
+        args: [id, title, url, grade, uploadDate]
+      });
+
+      const newBook: Book = {
+        id,
+        title,
+        url,
+        grade,
+        uploadDate
+      };
+      
+      setBooks(prevBooks => [...prevBooks, newBook]);
+      
+      toast({
+        title: "✅ تم إضافة الكتاب بنجاح",
+        description: `تم إضافة الكتاب: ${title}`
+      });
+      
+      return newBook;
+    } catch (error: any) {
+      console.error('Error adding book:', error);
+      toast({
+        title: "❌ خطأ في إضافة الكتاب",
+        description: error.message || "حدث خطأ غير متوقع",
+        variant: "destructive"
+      });
+      return null;
+    }
+  };
+
+  // Update book function
+  const updateBook = async (
+    bookId: string, 
+    title: string, 
+    url: string, 
+    grade: "first" | "second" | "third"
+  ) => {
+    try {
+      await turso.execute({
+        sql: `UPDATE books SET title = ?, url = ?, grade = ? WHERE id = ?`,
+        args: [title, url, grade, bookId]
+      });
+      
+      setBooks(prevBooks => prevBooks.map(book => 
+        book.id === bookId ? {
+          ...book,
+          title,
+          url,
+          grade
+        } : book
+      ));
+      
+      toast({
+        title: "✅ تم تحديث الكتاب بنجاح",
+        description: `تم تحديث الكتاب: ${title}`
+      });
+      
+      return true;
+    } catch (error: any) {
+      console.error('Error updating book:', error);
+      toast({
+        title: "❌ خطأ في تحديث الكتاب",
+        description: error.message || "حدث خطأ غير متوقع",
+        variant: "destructive"
+      });
+      return false;
+    }
+  };
+
+  // Delete book function
+  const deleteBook = async (bookId: string) => {
+    try {
+      await turso.execute({
+        sql: "DELETE FROM books WHERE id = ?",
+        args: [bookId]
+      });
+
+      setBooks(prevBooks => prevBooks.filter(book => book.id !== bookId));
+
+      toast({
+        title: "✅ تم حذف الكتاب بنجاح",
+        description: "تم حذف الكتاب من النظام"
+      });
+    } catch (error: any) {
+      console.error("Error deleting book:", error);
+      toast({
+        title: "❌ خطأ في حذف الكتاب",
+        description: error.message || "حدث خطأ غير متوقع",
+        variant: "destructive"
+      });
+    }
+  };
+
   return (
     <DataContext.Provider value={{
       grades,
@@ -562,6 +679,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addVideo,
       updateVideo,
       addAttendance,
+      addBook,
+      updateBook,
+      deleteBook,
     }}>
       {children}
     </DataContext.Provider>

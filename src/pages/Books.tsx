@@ -1,23 +1,21 @@
-
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { useData } from "@/context/DataContext";
 import { Logo } from "@/components/Logo";
 import { PhoneContact } from "@/components/PhoneContact";
 import { ArrowRight, FilePlus, Calendar, Search, Edit, Trash, X, FileText, Download } from "lucide-react";
 import { FileUploader } from "@/components/FileUploader";
 import { toast } from "@/hooks/use-toast";
-import { turso, generateId } from "@/integrations/turso/client";
 
 const Books = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  const { books, addBook, updateBook, deleteBook, fetchBooks } = useData();
   const [showAddForm, setShowAddForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedGrade, setSelectedGrade] = useState<"all" | "first" | "second" | "third">("all");
-  const [books, setBooks] = useState<{id: string, title: string, url: string, grade: string, uploadDate: string}[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
   // حالة النموذج
   const [title, setTitle] = useState("");
@@ -30,85 +28,29 @@ const Books = () => {
   const [editUrl, setEditUrl] = useState("");
   const [editGrade, setEditGrade] = useState<"first" | "second" | "third">("first");
   
-  // استدعاء البيانات من Turso
-  const fetchBooks = async () => {
-    setIsLoading(true);
-    try {
-      let query = "SELECT * FROM books ORDER BY upload_date DESC";
-      
-      if (selectedGrade !== 'all') {
-        query = `SELECT * FROM books WHERE grade = '${selectedGrade}' ORDER BY upload_date DESC`;
-      }
-      
-      const result = await turso.execute(query);
-      
-      if (result.rows) {
-        const mappedBooks = result.rows.map((book: any) => ({
-          id: book.id,
-          title: book.title,
-          url: book.url,
-          grade: book.grade,
-          uploadDate: book.upload_date || new Date().toISOString()
-        }));
-        setBooks(mappedBooks);
-        console.log("تم تحميل الكتب من Turso:", mappedBooks);
-      }
-    } catch (error) {
-      console.error("Error fetching books from Turso:", error);
-      toast({
-        variant: "destructive",
-        title: "خطأ في تحميل البيانات",
-        description: "حدث خطأ أثناء محاولة تحميل الكتب والملفات"
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  // استدعاء البيانات عند تحميل الصفحة أو تغيير التصفية
+  // استدعاء البيانات عند تحميل الصفحة
   useEffect(() => {
     fetchBooks();
-  }, [selectedGrade]);
+  }, []);
   
-  // تصفية البيانات حسب البحث
-  const filteredBooks = books.filter(book => 
-    book.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // تصفية البيانات حسب الصف والبحث
+  const filteredBooks = books.filter(book => {
+    const matchesGrade = selectedGrade === "all" || book.grade === selectedGrade;
+    const matchesSearch = book.title.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesGrade && matchesSearch;
+  });
   
   const handleAddBook = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !url.trim()) return;
     
-    try {
-      const id = generateId();
-      const uploadDate = new Date().toISOString();
-      
-      // إضافة إلى Turso
-      await turso.execute({
-        sql: "INSERT INTO books (id, title, url, grade, upload_date) VALUES (?, ?, ?, ?, ?)",
-        args: [id, title, url, grade, uploadDate]
-      });
-      
-      toast({
-        title: "تم إضافة الملف",
-        description: "تم إضافة الملف بنجاح"
-      });
-      
-      // إعادة تحميل البيانات
-      fetchBooks();
-      
+    const success = await addBook(title, url, grade);
+    if (success) {
       // إعادة تعيين النموذج
       setTitle("");
       setUrl("");
       setGrade("first");
       setShowAddForm(false);
-    } catch (error) {
-      console.error("Error adding book to Turso:", error);
-      toast({
-        variant: "destructive",
-        title: "خطأ في إضافة الملف",
-        description: "حدث خطأ أثناء محاولة إضافة الملف"
-      });
     }
   };
   
@@ -119,57 +61,15 @@ const Books = () => {
   const handleEditBook = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    try {
-      // تحديث في Turso
-      await turso.execute({
-        sql: "UPDATE books SET title = ?, url = ?, grade = ? WHERE id = ?",
-        args: [editTitle, editUrl, editGrade, editId]
-      });
-      
-      toast({
-        title: "تم تحديث الملف",
-        description: "تم تحديث الملف بنجاح"
-      });
-      
-      // إعادة تحميل البيانات
-      fetchBooks();
-      
-      // إغلاق نموذج التعديل
+    const success = await updateBook(editId, editTitle, editUrl, editGrade);
+    if (success) {
       setShowEditForm(false);
-    } catch (error) {
-      console.error("Error updating book in Turso:", error);
-      toast({
-        variant: "destructive",
-        title: "خطأ في تحديث الملف",
-        description: "حدث خطأ أثناء محاولة تحديث الملف"
-      });
     }
   };
   
   const handleDeleteBook = async (id: string) => {
     if (window.confirm("هل أنت متأكد من حذف هذا الملف؟")) {
-      try {
-        // حذف من Turso
-        await turso.execute({
-          sql: "DELETE FROM books WHERE id = ?",
-          args: [id]
-        });
-        
-        toast({
-          title: "تم حذف الملف",
-          description: "تم حذف الملف بنجاح"
-        });
-        
-        // إعادة تحميل البيانات
-        fetchBooks();
-      } catch (error) {
-        console.error("Error deleting book from Turso:", error);
-        toast({
-          variant: "destructive",
-          title: "خطأ في حذف الملف",
-          description: "حدث خطأ أثناء محاولة حذف الملف"
-        });
-      }
+      await deleteBook(id);
     }
   };
   
@@ -242,70 +142,60 @@ const Books = () => {
             </div>
           </div>
           
-          {/* حالة التحميل */}
-          {isLoading && (
-            <div className="bg-physics-dark rounded-lg p-8 text-center">
-              <div className="inline-block w-8 h-8 border-4 border-physics-gold border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-white mt-3">جاري تحميل البيانات...</p>
-            </div>
-          )}
-          
           {/* قائمة الكتب والملفات */}
-          {!isLoading && (
-            <div className="bg-physics-dark rounded-lg overflow-hidden">
-              {filteredBooks.length === 0 ? (
-                <div className="p-8 text-center">
-                  <p className="text-white text-lg">لا توجد ملفات متاحة</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-physics-navy">
-                  {filteredBooks.map(book => (
-                    <div key={book.id} className="p-4 hover:bg-physics-navy/30">
-                      <div className="flex items-center">
-                        <div className="mr-4 bg-physics-navy p-3 rounded-full">
-                          <FileText size={24} className="text-physics-gold" />
+          <div className="bg-physics-dark rounded-lg overflow-hidden">
+            {filteredBooks.length === 0 ? (
+              <div className="p-8 text-center">
+                <p className="text-white text-lg">لا توجد ملفات متاحة</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-physics-navy">
+                {filteredBooks.map(book => (
+                  <div key={book.id} className="p-4 hover:bg-physics-navy/30">
+                    <div className="flex items-center">
+                      <div className="mr-4 bg-physics-navy p-3 rounded-full">
+                        <FileText size={24} className="text-physics-gold" />
+                      </div>
+                      
+                      <div className="flex-1">
+                        <div className="flex items-center">
+                          <h3 className="text-lg font-medium text-white">{book.title}</h3>
                         </div>
-                        
-                        <div className="flex-1">
-                          <div className="flex items-center">
-                            <h3 className="text-lg font-medium text-white">{book.title}</h3>
-                          </div>
-                          <div className="flex items-center text-sm text-gray-300 mt-1">
-                            <Calendar size={14} className="ml-1" />
-                            <span>{formatDate(book.uploadDate)}</span>
-                            <span className="mx-2">•</span>
-                            <span>
-                              {book.grade === "first" && "الصف الأول الثانوي"}
-                              {book.grade === "second" && "الصف الثاني الثانوي"}
-                              {book.grade === "third" && "الصف الثالث الثانوي"}
-                            </span>
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          <a href={book.url} target="_blank" rel="noopener noreferrer" className="p-2 text-physics-gold hover:text-white">
-                            <Download size={18} />
-                          </a>
-                          
-                          {currentUser?.role === "admin" && (
-                            <div className="flex">
-                              <button onClick={() => openEditForm(book)} className="p-2 text-physics-gold hover:text-white">
-                                <Edit size={18} />
-                              </button>
-                              
-                              <button onClick={() => handleDeleteBook(book.id)} className="p-2 text-red-500 hover:text-white">
-                                <Trash size={18} />
-                              </button>
-                            </div>
-                          )}
+                        <div className="flex items-center text-sm text-gray-300 mt-1">
+                          <Calendar size={14} className="ml-1" />
+                          <span>{formatDate(book.uploadDate)}</span>
+                          <span className="mx-2">•</span>
+                          <span>
+                            {book.grade === "first" && "الصف الأول الثانوي"}
+                            {book.grade === "second" && "الصف الثاني الثانوي"}
+                            {book.grade === "third" && "الصف الثالث الثانوي"}
+                          </span>
                         </div>
                       </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <a href={book.url} target="_blank" rel="noopener noreferrer" className="p-2 text-physics-gold hover:text-white">
+                          <Download size={18} />
+                        </a>
+                        
+                        {currentUser?.role === "admin" && (
+                          <div className="flex">
+                            <button onClick={() => openEditForm(book)} className="p-2 text-physics-gold hover:text-white">
+                              <Edit size={18} />
+                            </button>
+                            
+                            <button onClick={() => handleDeleteBook(book.id)} className="p-2 text-red-500 hover:text-white">
+                              <Trash size={18} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </main>
       
