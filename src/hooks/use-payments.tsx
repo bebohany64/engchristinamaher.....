@@ -1,6 +1,7 @@
+
 import { useState, useEffect } from 'react';
 import { Payment, PaidMonth } from '@/types';
-import { turso, generateId } from "@/integrations/turso/client";
+import { turso, generateId, createTables } from "@/integrations/turso/client";
 import { toast } from "@/hooks/use-toast";
 
 // ثابت لعدد الحصص في الشهر الواحد
@@ -13,7 +14,24 @@ export function usePayments() {
 
   // Load data from Turso when hook initializes
   useEffect(() => {
-    fetchPayments();
+    const initializePayments = async () => {
+      try {
+        // إنشاء الجداول أولاً إذا لم تكن موجودة
+        await createTables();
+        
+        // ثم تحميل البيانات
+        await fetchPayments();
+      } catch (error) {
+        console.error("Error initializing payments:", error);
+        toast({
+          title: "خطأ في تهيئة المدفوعات",
+          description: "تعذر تهيئة جداول المدفوعات",
+          variant: "destructive"
+        });
+      }
+    };
+
+    initializePayments();
   }, []);
 
   // تحميل المدفوعات من Turso

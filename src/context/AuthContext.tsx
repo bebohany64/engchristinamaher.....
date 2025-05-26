@@ -1,9 +1,8 @@
-
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { User, Student, Parent } from "@/types";
 import { generateRandomCode, generateUniquePassword } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { turso, generateId } from "@/integrations/turso/client";
+import { turso, generateId, createTables } from "@/integrations/turso/client";
 
 interface AuthContextType {
   currentUser: User | null;
@@ -58,6 +57,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const loadData = async () => {
       setIsLoading(true);
       try {
+        // إنشاء الجداول أولاً إذا لم تكن موجودة
+        await createTables();
+        
         // Load user from localStorage only for session persistence
         const storedUser = localStorage.getItem("currentUser");
         const userLoggedIn = localStorage.getItem("userLoggedIn");

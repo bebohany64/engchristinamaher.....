@@ -1,3 +1,4 @@
+
 import React, {
   createContext,
   useContext,
@@ -5,7 +6,7 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
-import { turso, generateId } from "@/integrations/turso/client";
+import { turso, generateId, createTables } from "@/integrations/turso/client";
 import { toast } from "@/hooks/use-toast";
 import {
   Grade,
@@ -106,11 +107,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [attendance, setAttendance] = useState<Attendance[]>([]);
 
   useEffect(() => {
-    // Load all data from Turso on initial mount
-    fetchGrades();
-    fetchVideos();
-    fetchBooks();
-    fetchAttendance();
+    const initializeData = async () => {
+      try {
+        // إنشاء الجداول أولاً إذا لم تكن موجودة
+        await createTables();
+        
+        // Load all data from Turso on initial mount
+        fetchGrades();
+        fetchVideos();
+        fetchBooks();
+        fetchAttendance();
+      } catch (error) {
+        console.error("Error initializing data:", error);
+        toast({
+          title: "خطأ في تهيئة البيانات",
+          description: "تعذر تهيئة قاعدة البيانات",
+          variant: "destructive"
+        });
+      }
+    };
+
+    initializeData();
   }, []);
 
   const getStudentGrades = useCallback(
