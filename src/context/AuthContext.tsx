@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { User, Student, Parent } from "@/types";
 import { generateRandomCode, generateUniquePassword } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { turso, generateId } from "@/integrations/turso/client";
 
 interface AuthContextType {
   currentUser: User | null;
@@ -53,7 +53,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [parents, setParents] = useState<Parent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load data from Supabase on initial mount
+  // Load data from Turso on initial mount
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
@@ -72,59 +72,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
         
-        // Always fetch students from Supabase as primary source
-        const { data: studentsData, error: studentsError } = await supabase
-          .from('students')
-          .select('*');
+        // Always fetch students from Turso as primary source
+        try {
+          const studentsResult = await turso.execute("SELECT * FROM students");
           
-        if (studentsError) {
-          console.error("Error fetching students:", studentsError);
+          if (studentsResult.rows) {
+            const formattedStudents: Student[] = studentsResult.rows.map((student: any) => ({
+              id: student.id,
+              name: student.name,
+              phone: student.phone,
+              password: student.password,
+              code: student.code,
+              parentPhone: student.parent_phone,
+              group: student.group_name,
+              grade: student.grade as "first" | "second" | "third",
+              role: "student"
+            }));
+            setStudents(formattedStudents);
+            console.log("تم تحميل الطلاب من Turso:", formattedStudents.length);
+          }
+        } catch (error) {
+          console.error("Error fetching students from Turso:", error);
           toast({
             title: "خطأ في تحميل بيانات الطلاب",
             description: "تعذر تحميل بيانات الطلاب من قاعدة البيانات",
             variant: "destructive"
           });
-        } else {
-          // Map Supabase data to Student type
-          const formattedStudents: Student[] = studentsData.map(student => ({
-            id: student.id,
-            name: student.name,
-            phone: student.phone,
-            password: student.password,
-            code: student.code,
-            parentPhone: student.parent_phone,
-            group: student.group_name,
-            grade: student.grade as "first" | "second" | "third",
-            role: "student"
-          }));
-          setStudents(formattedStudents);
         }
         
-        // Always fetch parents from Supabase as primary source
-        const { data: parentsData, error: parentsError } = await supabase
-          .from('parents')
-          .select('*');
+        // Always fetch parents from Turso as primary source
+        try {
+          const parentsResult = await turso.execute("SELECT * FROM parents");
           
-        if (parentsError) {
-          console.error("Error fetching parents:", parentsError);
+          if (parentsResult.rows) {
+            const formattedParents: Parent[] = parentsResult.rows.map((parent: any) => ({
+              id: parent.id,
+              phone: parent.phone,
+              studentCode: parent.student_code,
+              studentName: parent.student_name,
+              password: parent.password
+            }));
+            setParents(formattedParents);
+            console.log("تم تحميل أولياء الأمور من Turso:", formattedParents.length);
+          }
+        } catch (error) {
+          console.error("Error fetching parents from Turso:", error);
           toast({
             title: "خطأ في تحميل بيانات أولياء الأمور",
             description: "تعذر تحميل بيانات أولياء الأمور من قاعدة البيانات",
             variant: "destructive"
           });
-        } else {
-          // Map Supabase data to Parent type
-          const formattedParents: Parent[] = parentsData.map(parent => ({
-            id: parent.id,
-            phone: parent.phone,
-            studentCode: parent.student_code,
-            studentName: parent.student_name,
-            password: parent.password
-          }));
-          setParents(formattedParents);
         }
       } catch (error) {
-        console.error("Error loading data from Supabase:", error);
+        console.error("Error loading data from Turso:", error);
         toast({
           title: "خطأ في الاتصال",
           description: "تعذر الاتصال بقاعدة البيانات",
@@ -230,50 +230,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ): Promise<Student> => {
     const code = generateRandomCode();
     const password = generateUniquePassword(students, parents);
+    const id = generateId();
     
     try {
-      // Insert into Supabase
-      const { data, error } = await supabase
-        .from('students')
-        .insert({
-          name: name,
-          phone: phone,
-          password: password,
-          code: code,
-          parent_phone: parentPhone,
-          group_name: group,
-          grade: grade
-        })
-        .select()
-        .single();
+      // Insert into Turso
+      await turso.execute({
+        sql: `INSERT INTO students (id, name, phone, password, code, parent_phone, group_name, grade) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [id, name, phone, password, code, parentPhone, group, grade]
+      });
 
-      if (error) {
-        console.error("Error creating student in Supabase:", error);
-        throw new Error(`فشل في إنشاء حساب الطالب: ${error.message}`);
-      }
-
-      // Update student with Supabase ID
-      const serverStudent: Student = {
-        id: data.id,
-        name: data.name,
-        phone: data.phone,
-        password: data.password,
-        code: data.code,
-        parentPhone: data.parent_phone,
-        group: data.group_name,
-        grade: data.grade as "first" | "second" | "third",
+      const newStudent: Student = {
+        id,
+        name,
+        phone,
+        password,
+        code,
+        parentPhone,
+        group,
+        grade,
         role: "student"
       };
 
       // Update local state
-      setStudents(prev => [...prev, serverStudent]);
+      setStudents(prev => [...prev, newStudent]);
       
       toast({
         title: "✅ تم إنشاء حساب الطالب بنجاح",
         description: `كود الطالب هو: ${code} | كلمة المرور: ${password}`,
       });
       
-      return serverStudent;
+      return newStudent;
     } catch (error: any) {
       console.error("Failed to create student:", error);
       toast({
@@ -295,23 +282,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     grade: "first" | "second" | "third"
   ): Promise<void> => {
     try {
-      // Update in Supabase
-      const { error } = await supabase
-        .from('students')
-        .update({
-          name: name,
-          phone: phone,
-          password: password,
-          parent_phone: parentPhone,
-          group_name: group,
-          grade: grade
-        })
-        .eq('id', id);
-
-      if (error) {
-        console.error("Error updating student in Supabase:", error);
-        throw new Error(`فشل في تحديث بيانات الطالب: ${error.message}`);
-      }
+      // Update in Turso
+      await turso.execute({
+        sql: `UPDATE students SET name = ?, phone = ?, password = ?, parent_phone = ?, 
+              group_name = ?, grade = ? WHERE id = ?`,
+        args: [name, phone, password, parentPhone, group, grade, id]
+      });
 
       // Update local state
       const studentIndex = students.findIndex(s => s.id === id);
@@ -348,16 +324,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteStudent = async (id: string): Promise<void> => {
     try {
-      // Delete from Supabase
-      const { error } = await supabase
-        .from('students')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        console.error("Error deleting student from Supabase:", error);
-        throw new Error(`فشل في حذف الطالب: ${error.message}`);
-      }
+      // Delete from Turso
+      await turso.execute({
+        sql: "DELETE FROM students WHERE id = ?",
+        args: [id]
+      });
 
       // Update local state
       setStudents(prev => prev.filter(student => student.id !== id));
@@ -390,43 +361,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const password = generateUniquePassword(students, parents);
+    const id = generateId();
     
     try {
-      // Insert into Supabase
-      const { data, error } = await supabase
-        .from('parents')
-        .insert({
-          phone: phone,
-          student_code: studentCode,
-          student_name: student.name,
-          password: password
-        })
-        .select()
-        .single();
+      // Insert into Turso
+      await turso.execute({
+        sql: `INSERT INTO parents (id, phone, student_code, student_name, password) 
+              VALUES (?, ?, ?, ?, ?)`,
+        args: [id, phone, studentCode, student.name, password]
+      });
 
-      if (error) {
-        console.error("Error creating parent in Supabase:", error);
-        throw new Error(`فشل في إنشاء حساب ولي الأمر: ${error.message}`);
-      }
-
-      // Update parent with Supabase ID
-      const serverParent: Parent = {
-        id: data.id,
-        phone: data.phone,
-        studentCode: data.student_code,
-        studentName: data.student_name,
-        password: data.password
+      const newParent: Parent = {
+        id,
+        phone,
+        studentCode,
+        studentName: student.name,
+        password
       };
 
       // Update local state
-      setParents(prev => [...prev, serverParent]);
+      setParents(prev => [...prev, newParent]);
       
       toast({
         title: "✅ تم إنشاء حساب ولي الأمر بنجاح",
         description: `مرتبط بالطالب: ${student.name} | كلمة المرور: ${password}`,
       });
       
-      return serverParent;
+      return newParent;
     } catch (error: any) {
       console.error("Failed to create parent:", error);
       toast({
@@ -451,21 +412,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      // Update in Supabase
-      const { error } = await supabase
-        .from('parents')
-        .update({
-          phone: phone,
-          student_code: studentCode,
-          student_name: student.name,
-          password: password
-        })
-        .eq('id', id);
-
-      if (error) {
-        console.error("Error updating parent in Supabase:", error);
-        throw new Error(`فشل في تحديث بيانات ولي الأمر: ${error.message}`);
-      }
+      // Update in Turso
+      await turso.execute({
+        sql: `UPDATE parents SET phone = ?, student_code = ?, student_name = ?, password = ? WHERE id = ?`,
+        args: [phone, studentCode, student.name, password, id]
+      });
 
       // Update local state
       const parentIndex = parents.findIndex(p => p.id === id);
@@ -516,16 +467,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     
     try {
-      // Delete from Supabase
-      const { error } = await supabase
-        .from('parents')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        console.error("Error deleting parent from Supabase:", error);
-        throw new Error(`فشل في حذف ولي الأمر: ${error.message}`);
-      }
+      // Delete from Turso
+      await turso.execute({
+        sql: "DELETE FROM parents WHERE id = ?",
+        args: [id]
+      });
 
       // Update local state
       setParents(prev => prev.filter(parent => parent.id !== id));
@@ -547,29 +493,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const getStudentByCode = async (code: string): Promise<Student | undefined> => {
     try {
-      // Always fetch from Supabase as primary source
-      const { data, error } = await supabase
-        .from('students')
-        .select('*')
-        .eq('code', code)
-        .single();
+      // Always fetch from Turso as primary source
+      const result = await turso.execute({
+        sql: "SELECT * FROM students WHERE code = ?",
+        args: [code]
+      });
 
-      if (error) {
-        console.error("Error fetching student by code from Supabase:", error);
-        // Fall back to local data only if Supabase fails
-        return students.find(student => student.code === code);
-      }
-
-      if (data) {
+      if (result.rows && result.rows.length > 0) {
+        const student = result.rows[0] as any;
         return {
-          id: data.id,
-          name: data.name,
-          phone: data.phone,
-          password: data.password,
-          code: data.code,
-          parentPhone: data.parent_phone,
-          group: data.group_name,
-          grade: data.grade as "first" | "second" | "third",
+          id: student.id,
+          name: student.name,
+          phone: student.phone,
+          password: student.password,
+          code: student.code,
+          parentPhone: student.parent_phone,
+          group: student.group_name,
+          grade: student.grade as "first" | "second" | "third",
           role: "student"
         };
       }
