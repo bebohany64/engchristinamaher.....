@@ -7,7 +7,7 @@ import { PhoneContact } from "@/components/PhoneContact";
 import { ArrowRight, FilePlus, Calendar, Search, Edit, Trash, X, FileText, Download } from "lucide-react";
 import { FileUploader } from "@/components/FileUploader";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { turso, generateId } from "@/integrations/turso/client";
 
 const Books = () => {
   const navigate = useNavigate();
@@ -30,22 +30,20 @@ const Books = () => {
   const [editUrl, setEditUrl] = useState("");
   const [editGrade, setEditGrade] = useState<"first" | "second" | "third">("first");
   
-  // استدعاء البيانات من Supabase
+  // استدعاء البيانات من Turso
   const fetchBooks = async () => {
     setIsLoading(true);
     try {
-      let query = supabase.from('books').select('*').order('upload_date', { ascending: false });
+      let query = "SELECT * FROM books ORDER BY upload_date DESC";
       
       if (selectedGrade !== 'all') {
-        query = query.eq('grade', selectedGrade);
+        query = `SELECT * FROM books WHERE grade = '${selectedGrade}' ORDER BY upload_date DESC`;
       }
       
-      const { data, error } = await query;
+      const result = await turso.execute(query);
       
-      if (error) throw error;
-      
-      if (data) {
-        const mappedBooks = data.map(book => ({
+      if (result.rows) {
+        const mappedBooks = result.rows.map((book: any) => ({
           id: book.id,
           title: book.title,
           url: book.url,
@@ -53,10 +51,10 @@ const Books = () => {
           uploadDate: book.upload_date || new Date().toISOString()
         }));
         setBooks(mappedBooks);
-        console.log("تم تحميل الكتب من Supabase:", mappedBooks);
+        console.log("تم تحميل الكتب من Turso:", mappedBooks);
       }
     } catch (error) {
-      console.error("Error fetching books:", error);
+      console.error("Error fetching books from Turso:", error);
       toast({
         variant: "destructive",
         title: "خطأ في تحميل البيانات",
@@ -82,17 +80,14 @@ const Books = () => {
     if (!title.trim() || !url.trim()) return;
     
     try {
-      // إضافة إلى Supabase
-      const { data, error } = await supabase
-        .from('books')
-        .insert([{
-          title: title,
-          url: url,
-          grade: grade,
-          upload_date: new Date().toISOString()
-        }]);
-        
-      if (error) throw error;
+      const id = generateId();
+      const uploadDate = new Date().toISOString();
+      
+      // إضافة إلى Turso
+      await turso.execute({
+        sql: "INSERT INTO books (id, title, url, grade, upload_date) VALUES (?, ?, ?, ?, ?)",
+        args: [id, title, url, grade, uploadDate]
+      });
       
       toast({
         title: "تم إضافة الملف",
@@ -108,7 +103,7 @@ const Books = () => {
       setGrade("first");
       setShowAddForm(false);
     } catch (error) {
-      console.error("Error adding book:", error);
+      console.error("Error adding book to Turso:", error);
       toast({
         variant: "destructive",
         title: "خطأ في إضافة الملف",
@@ -125,17 +120,11 @@ const Books = () => {
     e.preventDefault();
     
     try {
-      // تحديث في Supabase
-      const { error } = await supabase
-        .from('books')
-        .update({
-          title: editTitle,
-          url: editUrl,
-          grade: editGrade
-        })
-        .eq('id', editId);
-      
-      if (error) throw error;
+      // تحديث في Turso
+      await turso.execute({
+        sql: "UPDATE books SET title = ?, url = ?, grade = ? WHERE id = ?",
+        args: [editTitle, editUrl, editGrade, editId]
+      });
       
       toast({
         title: "تم تحديث الملف",
@@ -148,7 +137,7 @@ const Books = () => {
       // إغلاق نموذج التعديل
       setShowEditForm(false);
     } catch (error) {
-      console.error("Error updating book:", error);
+      console.error("Error updating book in Turso:", error);
       toast({
         variant: "destructive",
         title: "خطأ في تحديث الملف",
@@ -160,13 +149,11 @@ const Books = () => {
   const handleDeleteBook = async (id: string) => {
     if (window.confirm("هل أنت متأكد من حذف هذا الملف؟")) {
       try {
-        // حذف من Supabase
-        const { error } = await supabase
-          .from('books')
-          .delete()
-          .eq('id', id);
-        
-        if (error) throw error;
+        // حذف من Turso
+        await turso.execute({
+          sql: "DELETE FROM books WHERE id = ?",
+          args: [id]
+        });
         
         toast({
           title: "تم حذف الملف",
@@ -176,7 +163,7 @@ const Books = () => {
         // إعادة تحميل البيانات
         fetchBooks();
       } catch (error) {
-        console.error("Error deleting book:", error);
+        console.error("Error deleting book from Turso:", error);
         toast({
           variant: "destructive",
           title: "خطأ في حذف الملف",

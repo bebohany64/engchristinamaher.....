@@ -2,7 +2,7 @@
 import { createClient } from '@libsql/client';
 
 const TURSO_URL = "libsql://engchristinamaher-bebohany.aws-ap-northeast-1.turso.io";
-const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NDgyNTkwMjcsImlkIjoiMmU3MWI2MTUtODVmOS00MmY1LWFiMTItMGY1YjJjZDAyNWQxIiwicmlkIjoiMTUwODIwODQtN2NlMC00MWFkLWI4YmItMDE1NTQwMzZhMTQ3In0.tczwiACbqwip-Afjko5ONMgzG4Jn5xH8BfJNCgwHnElRTFUKiiIPAsqZrsLK4k5R2x-a05uImoa6_BAhfEPnAQ";
+const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NDgyNjA3NzIsImlkIjoiMmU3MWI2MTUtODVmOS00MmY1LWFiMTItMGY1YjJjZDAyNWQxIiwicmlkIjoiMTUwODIwODQtN2NlMC00MWFkLWI4YmItMDE1NTQwMzZhMTQ3In0.c9y7UFbJZQPk_6XxrI7O0sRiSHu8j4Ts7G9Im3gtUJB1AAkOCJ5gSKgWaNakIV0pF5WSdxprxbPb6uCoPrYcBQ";
 
 export const turso = createClient({
   url: TURSO_URL,
