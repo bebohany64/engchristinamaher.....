@@ -1,7 +1,6 @@
-
 import { useState, useEffect } from 'react';
 import { Payment, PaidMonth } from '@/types';
-import { supabase } from "@/integrations/supabase/client";
+import { turso, generateId } from "@/integrations/turso/client";
 import { toast } from "@/hooks/use-toast";
 
 // ثابت لعدد الحصص في الشهر الواحد
@@ -12,52 +11,28 @@ export function usePayments() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load data from Supabase when hook initializes
+  // Load data from Turso when hook initializes
   useEffect(() => {
     fetchPayments();
   }, []);
 
-  // تحميل المدفوعات من Supabase
+  // تحميل المدفوعات من Turso
   const fetchPayments = async () => {
     try {
       setIsLoading(true);
       
       // First, fetch all payments
-      const { data: paymentsData, error: paymentsError } = await supabase
-        .from('payments')
-        .select('*');
-
-      if (paymentsError) {
-        console.error("Error fetching payments:", paymentsError);
-        toast({
-          title: "خطأ في جلب المدفوعات",
-          description: paymentsError.message,
-          variant: "destructive"
-        });
-        return;
-      }
+      const paymentsResult = await turso.execute("SELECT * FROM payments");
       
       // Then fetch all paid months
-      const { data: paidMonthsData, error: paidMonthsError } = await supabase
-        .from('paid_months')
-        .select('*');
-        
-      if (paidMonthsError) {
-        console.error("Error fetching paid months:", paidMonthsError);
-        toast({
-          title: "خطأ في جلب الأشهر المدفوعة",
-          description: paidMonthsError.message,
-          variant: "destructive"
-        });
-        return;
-      }
+      const paidMonthsResult = await turso.execute("SELECT * FROM paid_months");
       
       // Map the database data to our app's data structure
-      const processedPayments = paymentsData.map(payment => {
+      const processedPayments = paymentsResult.rows.map((payment: any) => {
         // Find all paid months for this payment
-        const relatedPaidMonths = paidMonthsData
-          .filter(pm => pm.payment_id === payment.id)
-          .map(pm => ({
+        const relatedPaidMonths = paidMonthsResult.rows
+          .filter((pm: any) => pm.payment_id === payment.id)
+          .map((pm: any) => ({
             month: pm.month,
             date: pm.date
           }));
@@ -75,9 +50,9 @@ export function usePayments() {
       });
       
       setPayments(processedPayments);
-      console.log("Loaded payments from Supabase:", processedPayments.length);
+      console.log("Loaded payments from Turso:", processedPayments.length);
     } catch (error) {
-      console.error("Error loading payments from Supabase:", error);
+      console.error("Error loading payments from Turso:", error);
     } finally {
       setIsLoading(false);
       setIsInitialized(true);
@@ -113,42 +88,26 @@ export function usePayments() {
           };
         }
 
-        // Update existing payment in Supabase
-        const { error: updateError } = await supabase
-          .from('payments')
-          .update({ 
-            month,
-            date
-          })
-          .eq('id', existingPayment.id);
-
-        if (updateError) {
-          console.error("Error updating payment:", updateError);
-          throw updateError;
-        }
+        // Update existing payment in Turso
+        await turso.execute({
+          sql: "UPDATE payments SET month = ?, date = ? WHERE id = ?",
+          args: [month, date, existingPayment.id]
+        });
 
         // Add new paid month
-        const { error: paidMonthError } = await supabase
-          .from('paid_months')
-          .insert({
-            payment_id: existingPayment.id,
-            month,
-            date
-          });
-
-        if (paidMonthError) {
-          console.error("Error adding paid month:", paidMonthError);
-          throw paidMonthError;
-        }
+        await turso.execute({
+          sql: "INSERT INTO paid_months (id, payment_id, month, date) VALUES (?, ?, ?, ?)",
+          args: [generateId(), existingPayment.id, month, date]
+        });
 
         // Update local state
         const updatedPayments = payments.map(payment => {
           if (payment.id === existingPayment.id) {
             return {
               ...payment,
-              month, // Update current month
-              date,  // Update payment date
-              paidMonths: [...payment.paidMonths, paidMonth] // Add new month to paid months list
+              month,
+              date,
+              paidMonths: [...payment.paidMonths, paidMonth]
             };
           }
           return payment;
@@ -167,42 +126,24 @@ export function usePayments() {
           }
         };
       } else {
-        // Create new payment record for student in Supabase
-        const { data: newPaymentData, error: paymentError } = await supabase
-          .from('payments')
-          .insert({
-            student_id: studentId,
-            student_name: studentName,
-            student_code: studentCode,
-            student_group: group,
-            month,
-            date
-          })
-          .select()
-          .single();
-
-        if (paymentError) {
-          console.error("Error creating payment:", paymentError);
-          throw paymentError;
-        }
+        // Create new payment record for student in Turso
+        const paymentId = generateId();
+        
+        await turso.execute({
+          sql: `INSERT INTO payments (id, student_id, student_name, student_code, 
+                student_group, month, date) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          args: [paymentId, studentId, studentName, studentCode, group, month, date]
+        });
 
         // Add initial paid month
-        const { error: paidMonthError } = await supabase
-          .from('paid_months')
-          .insert({
-            payment_id: newPaymentData.id,
-            month,
-            date
-          });
-
-        if (paidMonthError) {
-          console.error("Error adding paid month:", paidMonthError);
-          throw paidMonthError;
-        }
+        await turso.execute({
+          sql: "INSERT INTO paid_months (id, payment_id, month, date) VALUES (?, ?, ?, ?)",
+          args: [generateId(), paymentId, month, date]
+        });
 
         // Create new payment object for local state
         const newPayment: Payment = {
-          id: newPaymentData.id,
+          id: paymentId,
           studentId,
           studentName,
           studentCode,
@@ -237,10 +178,10 @@ export function usePayments() {
       console.log(`Starting deletion process for payment ID: ${paymentId}`);
       
       // First delete related paid_months
-      const { error: paidMonthsError } = await supabase
-        .from('paid_months')
-        .delete()
-        .eq('payment_id', paymentId);
+      const { error: paidMonthsError } = await turso.execute({
+        sql: "DELETE FROM paid_months WHERE payment_id = ?",
+        args: [paymentId]
+      });
         
       if (paidMonthsError) {
         console.error("Error deleting related paid months:", paidMonthsError);
@@ -253,13 +194,13 @@ export function usePayments() {
       console.log("Successfully deleted related paid months, now deleting payment record");
       
       // Then delete the payment itself
-      const { error: paymentError } = await supabase
-        .from('payments')
-        .delete()
-        .eq('id', paymentId);
+      const { error: paymentError } = await turso.execute({
+        sql: "DELETE FROM payments WHERE id = ?",
+        args: [paymentId]
+      });
 
       if (paymentError) {
-        console.error("Error deleting payment from Supabase:", paymentError);
+        console.error("Error deleting payment from Turso:", paymentError);
         return {
           success: false,
           message: `حدث خطأ أثناء حذف سجل الدفع: ${paymentError.message || 'خطأ غير معروف'}`

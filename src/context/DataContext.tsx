@@ -1,4 +1,3 @@
-
 import React, {
   createContext,
   useContext,
@@ -6,7 +5,7 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { turso, generateId } from "@/integrations/turso/client";
 import { toast } from "@/hooks/use-toast";
 import {
   Grade,
@@ -95,7 +94,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [attendance, setAttendance] = useState<Attendance[]>([]);
 
   useEffect(() => {
-    // Load all data from Supabase on initial mount
+    // Load all data from Turso on initial mount
     fetchGrades();
     fetchVideos();
     fetchBooks();
@@ -139,20 +138,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const deleteAttendanceRecord = async (recordId: string) => {
     try {
-      const { error } = await supabase
-        .from("attendance")
-        .delete()
-        .eq("id", recordId);
-      
-      if (error) {
-        console.error("Error deleting attendance record:", error);
-        toast({
-          title: "❌ خطأ في حذف سجل الحضور",
-          description: error.message,
-          variant: "destructive"
-        });
-        return;
-      }
+      await turso.execute({
+        sql: "DELETE FROM attendance WHERE id = ?",
+        args: [recordId]
+      });
 
       setAttendance((prevAttendance) =>
         prevAttendance.filter((record) => record.id !== recordId)
@@ -174,17 +163,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const deleteGrade = async (gradeId: string) => {
     try {
-      const { error } = await supabase.from("grades").delete().eq("id", gradeId);
-      
-      if (error) {
-        console.error("Error deleting grade:", error);
-        toast({
-          title: "❌ خطأ في حذف الدرجة",
-          description: error.message,
-          variant: "destructive"
-        });
-        return;
-      }
+      await turso.execute({
+        sql: "DELETE FROM grades WHERE id = ?",
+        args: [gradeId]
+      });
 
       setGrades((prevGrades) => prevGrades.filter((grade) => grade.id !== gradeId));
 
@@ -204,17 +186,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const deleteVideo = async (videoId: string) => {
     try {
-      const { error } = await supabase.from("videos").delete().eq("id", videoId);
-      
-      if (error) {
-        console.error("Error deleting video:", error);
-        toast({
-          title: "❌ خطأ في حذف الفيديو",
-          description: error.message,
-          variant: "destructive"
-        });
-        return;
-      }
+      await turso.execute({
+        sql: "DELETE FROM videos WHERE id = ?",
+        args: [videoId]
+      });
 
       setVideos((prevVideos) => prevVideos.filter((video) => video.id !== videoId));
 
@@ -232,131 +207,99 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Function to convert snake_case to camelCase for grades
-  const formatGradeData = (data: any[]): Grade[] => {
-    return data.map(item => ({
-      id: item.id,
-      studentId: item.student_id,
-      studentName: item.student_name,
-      examName: item.exam_name,
-      score: Number(item.score),
-      totalScore: Number(item.total_score),
-      date: item.date,
-      lessonNumber: item.lesson_number || 1,
-      group: item.group_name || "",
-      performanceIndicator: item.performance_indicator || "good",
-    }));
-  };
-
-  // Function to convert snake_case to camelCase for attendance
-  const formatAttendanceData = (data: any[]): Attendance[] => {
-    return data.map(item => ({
-      id: item.id,
-      studentId: item.student_id,
-      studentName: item.student_name,
-      date: item.date,
-      time: item.time || "",
-      status: item.status,
-      lessonNumber: item.lesson_number || 1,
-    }));
-  };
-
-  // Function to convert snake_case to camelCase for videos
-  const formatVideoData = (data: any[]): Video[] => {
-    return data.map(item => ({
-      id: item.id,
-      title: item.title,
-      url: item.url,
-      uploadDate: item.upload_date,
-      grade: item.grade,
-      isYouTube: item.is_youtube || false,
-    }));
-  };
-
-  // Function to convert snake_case to camelCase for books
-  const formatBookData = (data: any[]): Book[] => {
-    return data.map(item => ({
-      id: item.id,
-      title: item.title,
-      url: item.url,
-      uploadDate: item.upload_date,
-      grade: item.grade,
-    }));
-  };
-
-  // Fetch grades from Supabase
+  // Fetch grades from Turso
   const fetchGrades = async () => {
     try {
-      const { data, error } = await supabase.from('grades').select('*');
-      if (error) {
-        console.error('Error fetching grades:', error);
-        toast({
-          title: "خطأ في تحميل الدرجات",
-          description: "تعذر تحميل الدرجات من قاعدة البيانات",
-          variant: "destructive"
-        });
-        return;
-      }
-      setGrades(formatGradeData(data));
+      const result = await turso.execute("SELECT * FROM grades");
+      const formattedGrades = result.rows.map((row: any) => ({
+        id: row.id,
+        studentId: row.student_id,
+        studentName: row.student_name,
+        examName: row.exam_name,
+        score: Number(row.score),
+        totalScore: Number(row.total_score),
+        date: row.date,
+        lessonNumber: row.lesson_number || 1,
+        group: row.group_name || "",
+        performanceIndicator: row.performance_indicator || "good",
+      }));
+      setGrades(formattedGrades);
     } catch (error) {
       console.error('Error fetching grades:', error);
+      toast({
+        title: "خطأ في تحميل الدرجات",
+        description: "تعذر تحميل الدرجات من قاعدة البيانات",
+        variant: "destructive"
+      });
     }
   };
 
-  // Fetch attendance from Supabase
+  // Fetch attendance from Turso
   const fetchAttendance = async () => {
     try {
-      const { data, error } = await supabase.from('attendance').select('*');
-      if (error) {
-        console.error('Error fetching attendance:', error);
-        toast({
-          title: "خطأ في تحميل الحضور",
-          description: "تعذر تحميل بيانات الحضور من قاعدة البيانات",
-          variant: "destructive"
-        });
-        return;
-      }
-      setAttendance(formatAttendanceData(data));
+      const result = await turso.execute("SELECT * FROM attendance");
+      const formattedAttendance = result.rows.map((row: any) => ({
+        id: row.id,
+        studentId: row.student_id,
+        studentName: row.student_name,
+        date: row.date,
+        time: row.time || "",
+        status: row.status,
+        lessonNumber: row.lesson_number || 1,
+      }));
+      setAttendance(formattedAttendance);
     } catch (error) {
       console.error('Error fetching attendance:', error);
+      toast({
+        title: "خطأ في تحميل الحضور",
+        description: "تعذر تحميل بيانات الحضور من قاعدة البيانات",
+        variant: "destructive"
+      });
     }
   };
 
-  // Fetch videos from Supabase
+  // Fetch videos from Turso
   const fetchVideos = async () => {
     try {
-      const { data, error } = await supabase.from('videos').select('*');
-      if (error) {
-        console.error('Error fetching videos:', error);
-        toast({
-          title: "خطأ في تحميل الفيديوهات",
-          description: "تعذر تحميل الفيديوهات من قاعدة البيانات",
-          variant: "destructive"
-        });
-        return;
-      }
-      setVideos(formatVideoData(data));
+      const result = await turso.execute("SELECT * FROM videos");
+      const formattedVideos = result.rows.map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        url: row.url,
+        uploadDate: row.upload_date,
+        grade: row.grade,
+        isYouTube: row.is_youtube || false,
+      }));
+      setVideos(formattedVideos);
     } catch (error) {
       console.error('Error fetching videos:', error);
+      toast({
+        title: "خطأ في تحميل الفيديوهات",
+        description: "تعذر تحميل الفيديوهات من قاعدة البيانات",
+        variant: "destructive"
+      });
     }
   };
 
-  // Fetch books from Supabase
+  // Fetch books from Turso
   const fetchBooks = async () => {
     try {
-      const { data, error } = await supabase.from('books').select('*');
-      if (error) {
-        console.error('Error fetching books:', error);
-        toast({
-          title: "خطأ في تحميل الكتب",
-          description: "تعذر تحميل الكتب من قاعدة البيانات",
-          variant: "destructive"
-        });
-        return;
-      }
-      setBooks(formatBookData(data));
+      const result = await turso.execute("SELECT * FROM books");
+      const formattedBooks = result.rows.map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        url: row.url,
+        uploadDate: row.upload_date,
+        grade: row.grade,
+      }));
+      setBooks(formattedBooks);
     } catch (error) {
       console.error('Error fetching books:', error);
+      toast({
+        title: "خطأ في تحميل الكتب",
+        description: "تعذر تحميل الكتب من قاعدة البيانات",
+        variant: "destructive"
+      });
     }
   };
 
@@ -371,38 +314,38 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     group: string = ""
   ) => {
     try {
-      const { data, error } = await supabase.from('grades').insert({
-        student_id: studentId,
-        student_name: studentName,
-        exam_name: examName,
-        score,
-        total_score: totalScore,
-        lesson_number: lessonNumber,
-        group_name: group,
-        performance_indicator: calculatePerformanceIndicator(score, totalScore),
-        date: new Date().toISOString()
-      }).select();
+      const id = generateId();
+      const date = new Date().toISOString();
+      const performanceIndicator = calculatePerformanceIndicator(score, totalScore);
 
-      if (error) {
-        console.error('Error adding grade:', error);
-        toast({
-          title: "❌ خطأ في إضافة الدرجة",
-          description: error.message,
-          variant: "destructive"
-        });
-        return null;
-      }
-      
-      // Format the returned data
-      const formattedData = formatGradeData(data);
-      setGrades(prevGrades => [...prevGrades, ...formattedData]);
+      await turso.execute({
+        sql: `INSERT INTO grades (id, student_id, student_name, exam_name, score, total_score, 
+              lesson_number, group_name, performance_indicator, date) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [id, studentId, studentName, examName, score, totalScore, lessonNumber, group, performanceIndicator, date]
+      });
+
+      const newGrade: Grade = {
+        id,
+        studentId,
+        studentName,
+        examName,
+        score,
+        totalScore,
+        lessonNumber,
+        group,
+        performanceIndicator,
+        date
+      };
+
+      setGrades(prevGrades => [...prevGrades, newGrade]);
       
       toast({
         title: "✅ تم إضافة الدرجة بنجاح",
         description: `تم إضافة درجة ${examName} للطالب ${studentName}`
       });
       
-      return formattedData[0];
+      return newGrade;
     } catch (error: any) {
       console.error('Error adding grade:', error);
       toast({
@@ -426,24 +369,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     try {
       const performanceIndicator = calculatePerformanceIndicator(score, totalScore);
       
-      const { error } = await supabase.from('grades').update({
-        exam_name: examName,
-        score,
-        total_score: totalScore,
-        lesson_number: lessonNumber, 
-        group_name: group,
-        performance_indicator: performanceIndicator
-      }).eq('id', gradeId);
-
-      if (error) {
-        console.error('Error updating grade:', error);
-        toast({
-          title: "❌ خطأ في تحديث الدرجة",
-          description: error.message,
-          variant: "destructive"
-        });
-        return false;
-      }
+      await turso.execute({
+        sql: `
+          UPDATE grades 
+          SET exam_name = ?, score = ?, total_score = ?, lesson_number = ?, group_name = ?, performance_indicator = ?
+          WHERE id = ?
+        `,
+        args: [examName, score, totalScore, lessonNumber, group, performanceIndicator, gradeId]
+      });
       
       setGrades(prevGrades => prevGrades.map(grade => 
         grade.id === gradeId ? {
@@ -477,33 +410,34 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Add video function
   const addVideo = async (title: string, url: string, grade: "first" | "second" | "third", isYouTube: boolean = false) => {
     try {
-      const { data, error } = await supabase.from('videos').insert({
+      const id = generateId();
+      const uploadDate = new Date().toISOString();
+
+      await turso.execute({
+        sql: `
+          INSERT INTO videos (id, title, url, grade, is_youtube, upload_date)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        args: [id, title, url, grade, isYouTube, uploadDate]
+      });
+
+      const newVideo: Video = {
+        id,
         title,
         url,
         grade,
-        is_youtube: isYouTube,
-        upload_date: new Date().toISOString()
-      }).select();
-
-      if (error) {
-        console.error('Error adding video:', error);
-        toast({
-          title: "❌ خطأ في إضافة الفيديو",
-          description: error.message,
-          variant: "destructive"
-        });
-        return null;
-      }
+        isYouTube,
+        uploadDate
+      };
       
-      const formattedData = formatVideoData(data);
-      setVideos(prevVideos => [...prevVideos, ...formattedData]);
+      setVideos(prevVideos => [...prevVideos, newVideo]);
       
       toast({
         title: "✅ تم إضافة الفيديو بنجاح",
         description: `تم إضافة الفيديو: ${title}`
       });
       
-      return formattedData[0];
+      return newVideo;
     } catch (error: any) {
       console.error('Error adding video:', error);
       toast({
@@ -524,22 +458,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     isYouTube: boolean = false
   ) => {
     try {
-      const { error } = await supabase.from('videos').update({
-        title,
-        url,
-        grade,
-        is_youtube: isYouTube
-      }).eq('id', videoId);
-
-      if (error) {
-        console.error('Error updating video:', error);
-        toast({
-          title: "❌ خطأ في تحديث الفيديو",
-          description: error.message,
-          variant: "destructive"
-        });
-        return false;
-      }
+      await turso.execute({
+        sql: `
+          UPDATE videos
+          SET title = ?, url = ?, grade = ?, is_youtube = ?
+          WHERE id = ?
+        `,
+        args: [title, url, grade, isYouTube, videoId]
+      });
       
       setVideos(prevVideos => prevVideos.map(video => 
         video.id === videoId ? {
@@ -576,32 +502,32 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     lessonNumber: number = 1
   ) => {
     try {
+      const id = generateId();
       const currentTime = new Date();
       const time = currentTime.toLocaleTimeString();
-      
-      const { data, error } = await supabase.from('attendance').insert({
-        student_id: studentId,
-        student_name: studentName,
-        status,
-        lesson_number: lessonNumber,
-        time,
-        date: currentTime.toISOString()
-      }).select();
+      const date = currentTime.toISOString();
 
-      if (error) {
-        console.error('Error adding attendance:', error);
-        toast({
-          title: "❌ خطأ في تسجيل الحضور",
-          description: error.message,
-          variant: "destructive"
-        });
-        return null;
-      }
+      await turso.execute({
+        sql: `
+          INSERT INTO attendance (id, student_id, student_name, status, lesson_number, time, date)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [id, studentId, studentName, status, lessonNumber, time, date]
+      });
+
+      const newAttendance: Attendance = {
+        id,
+        studentId,
+        studentName,
+        status,
+        lessonNumber,
+        time,
+        date
+      };
       
-      const formattedData = formatAttendanceData(data);
-      setAttendance(prevAttendance => [...prevAttendance, ...formattedData]);
+      setAttendance(prevAttendance => [...prevAttendance, newAttendance]);
       
-      return formattedData[0];
+      return newAttendance;
     } catch (error: any) {
       console.error('Error adding attendance:', error);
       toast({
